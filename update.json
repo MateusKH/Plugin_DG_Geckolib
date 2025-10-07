@@ -1,0 +1,9 @@
+{
+  "geckolib_plugin": {
+    "latest": "6.0.3",
+    "changes": [
+      "Ported the plugin to 2025.3",
+      "Ported the plugin to 2025.2"
+    ]
+  }
+}

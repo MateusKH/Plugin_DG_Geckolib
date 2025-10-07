@@ -1,1 +1,1 @@
-# Plugin_DG_Geckolib
+# MCreator-Nerdys_Geckolib_Plugin

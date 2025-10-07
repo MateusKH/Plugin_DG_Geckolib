@@ -1,0 +1,132 @@
+import groovy.json.JsonSlurper
+import org.gradle.internal.os.OperatingSystem
+
+plugins {
+    id "java"
+}
+
+repositories {
+    mavenCentral()
+    maven { url "https://repo.gradle.org/gradle/libs-releases" }
+    flatDir { dirs mcreator_path + '/lib' }
+}
+
+group = 'net.nerdypuzzle.geckolib'
+version = new JsonSlurper().parse(file('src/main/resources/plugin.json'))['info']['version']
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+// ======================================================
+// Detecta o sistema operacional e define o classifier JavaFX
+// ======================================================
+def javafxVersion = "21.0.2"
+def platform = OperatingSystem.current()
+def javafxPlatform = platform.isWindows() ? 'win' :
+                     platform.isLinux()   ? 'linux' :
+                     platform.isMacOsX()  ? 'mac' : null
+
+if (javafxPlatform == null)
+    throw new GradleException("Unsupported OS for JavaFX: ${platform}")
+
+// ======================================================
+// Dependências principais + JavaFX
+// ======================================================
+dependencies {
+    implementation project(':MCreator')
+    implementation fileTree(dir: 'Geckolib', include: ['*.jar'])
+
+    // Bibliotecas comuns
+    implementation 'com.google.code.gson:gson:2.10.1'
+    implementation 'org.apache.commons:commons-lang3:3.12.0'
+    implementation 'org.apache.logging.log4j:log4j-api:2.17.1'
+    implementation 'org.apache.logging.log4j:log4j-core:2.17.1'
+    implementation 'javax.annotation:javax.annotation-api:1.3.2'
+    implementation 'org.jetbrains:annotations:24.0.1'
+
+    // Módulos JavaFX
+    implementation "org.openjfx:javafx-base:${javafxVersion}:${javafxPlatform}"
+    implementation "org.openjfx:javafx-controls:${javafxVersion}:${javafxPlatform}"
+    implementation "org.openjfx:javafx-graphics:${javafxVersion}:${javafxPlatform}"
+    implementation "org.openjfx:javafx-web:${javafxVersion}:${javafxPlatform}"
+    implementation "org.openjfx:javafx-swing:${javafxVersion}:${javafxPlatform}"
+    implementation "org.openjfx:javafx-media:${javafxVersion}:${javafxPlatform}"
+}
+
+// ======================================================
+// Compilação: adiciona módulos JavaFX ao module-path
+// ======================================================
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = "UTF-8"
+    options.release = 21
+
+    doFirst {
+        def javafxJars = configurations.compileClasspath.filter {
+            it.name.startsWith("javafx-") && it.name.endsWith(".jar")
+        }.files
+
+        if (!javafxJars.isEmpty()) {
+            println "🧩 Adicionando ${javafxJars.size()} módulos JavaFX ao module-path..."
+            options.compilerArgs += [
+                '--module-path', javafxJars.join(File.pathSeparator),
+                '--add-modules', 'javafx.base,javafx.graphics,javafx.controls,javafx.web,javafx.swing,javafx.media'
+            ]
+        } else {
+            println "⚠️ Nenhum JAR JavaFX encontrado no classpath! Execute 'gradlew build --refresh-dependencies'."
+        }
+    }
+}
+
+// ======================================================
+// Criação do ZIP final do plugin
+// ======================================================
+tasks.jar {
+    archiveFileName.set("Nerdys_Geckolib_Plugin.zip")
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+// ======================================================
+// Execução do MCreator com JavaFX ativado no runtime
+// ======================================================
+tasks.register('runMCreatorWithPlugin', JavaExec) {
+    dependsOn jar
+
+    environment("MCREATOR_PLUGINS_FOLDER", file("./build/libs"))
+    environment("MCREATOR_PLUGINS_DEV", "")
+
+    def javafxJars = configurations.runtimeClasspath.filter {
+        it.name.startsWith("javafx-") && it.name.endsWith(".jar")
+    }.files
+
+    if (!javafxJars.isEmpty()) {
+        println "🧩 Adicionando ${javafxJars.size()} módulos JavaFX ao runtime..."
+        jvmArgs += [
+            '--module-path', javafxJars.join(File.pathSeparator),
+            '--add-modules', 'javafx.controls,javafx.web,javafx.swing,javafx.graphics,javafx.base,javafx.media',
+            '--add-opens', 'java.base/java.lang=ALL-UNNAMED'
+        ]
+    } else {
+        println "⚠️ Nenhum JAR JavaFX encontrado no classpath! Execute 'gradlew build --refresh-dependencies'."
+    }
+
+    classpath = project(':MCreator').sourceSets.main.runtimeClasspath
+    mainClass.set('net.mcreator.Launcher')
+    workingDir = mcreator_path
+}
+
+// ======================================================
+// Configuração de compatibilidade para subprojetos
+// ======================================================
+subprojects { subproject ->
+    subproject.plugins.withType(JavaPlugin) {
+        test {
+            dependsOn rootProject.jar
+            environment("MCREATOR_PLUGINS_FOLDER", new File(rootProject.projectDir, "/build/libs"))
+            environment("MCREATOR_PLUGINS_DEV", "")
+            workingDir = mcreator_path
+        }
+    }
+}
